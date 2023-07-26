@@ -1,0 +1,8 @@
+Overview
+The Redfish Scalable Platforms Management API is a standard defined by the Distributed Management Task Force (DMTF). Redfish is a next-generation systems management interface standard, which enables scalable, secure, and open server management. It is a new interface that uses RESTful interface semantics to access data that is defined in model format to perform out-of-band systems management. It is suitable for a wide range of servers ranging from stand-alone servers to rack mount and bladed environments and for large scale cloud environments.
+
+Dell PowerEdge servers offer a comprehensive range of embedded systems management functions enabled by the Integrated Dell Remote Access Controler (iDRAC) with Lifecycle Controller. These functions are designed by adhering industry standard application programming interfaces (APIs) including Redfish.
+
+iDRAC with Lifecycle Controller technology is part of a larger data center solution that helps keep business critical applications and workloads available always. The technology allows administrators to deploy, monitor, manage, configure, update, troubleshoot, and remediate Dell servers from any location, and without the use of agents. It accomplishes this regardless of an operating system or a Hypervisor presence or state.
+
+This document provides a brief overview on Redfish and information on various aspects of Redfish protocol, supported schema, and Redfish Eventing implemented in iDRAC. It also provides guidelines for using the Dell Redfish APIs.
