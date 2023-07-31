@@ -52,17 +52,19 @@ def process_batch(batch_user_inputs):
             for response_stream in future.result():
                 yield response_stream
 
-def chat(chat_history, user_input):
+def chat(chat_history, user_inputs):
+    user_inputs = [prompt_helper.preprocess_input(prompt) for prompt in user_inputs]
 
-    # Process the user inputs in parallel batches using DataLoader
+    # Process the user inputs in parallel using DataLoader
     batch_size = 4  # Adjust this value based on your system's capabilities
     user_input_dataset = UserInputDataset(user_inputs)
     data_loader = DataLoader(user_input_dataset, batch_size=batch_size, num_workers=2)  # Adjust num_workers as needed
 
-    for user_input_batch in data_loader:
-        response_streams = process_batch(index, user_input_batch.tolist())
-        for response_stream in response_streams:
-            yield chat_history + [(user_input, response_stream)]
+    with torch.cuda.device(0):  # Set the device to process on GPU 0
+        for user_input_batch in data_loader:
+            response_streams = process_batch(user_input_batch.tolist())
+            for user_input, response_stream in zip(user_input_batch, response_streams):
+                yield chat_history + [(user_input, response_stream)]
 ##################################### Utility Functions #####################################
 
 def timeit():
