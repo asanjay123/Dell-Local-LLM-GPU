@@ -6,7 +6,6 @@ from torch.utils.data import Dataset, DataLoader
 import gradio as gr
 import time
 from langchain.llms.base import LLM
-from langchain import OpenAI
 from llama_index import (
     GPTListIndex,
     LLMPredictor,
@@ -25,6 +24,10 @@ from transformers import AutoTokenizer, AutoModelForCausalLM
 ##################################### Parallelization #####################################
     
 def batch_process(user_inputs):
+    # Ensure user_inputs is a list
+    if not isinstance(user_inputs, list):
+        user_inputs = [user_inputs]
+
     # Tokenization
     inputs = tokenizer(user_inputs, return_tensors='pt', padding=True, truncation=True, max_length=prompt_helper.max_input_size)
     inputs = {key: val.to("cuda:0") for key, val in inputs.items()}  # Move the input tensors to GPU
@@ -39,6 +42,7 @@ def batch_process(user_inputs):
     generated_texts = tokenizer.batch_decode(generated_text_ids, skip_special_tokens=True)
 
     return generated_texts
+
 
 def chat(chat_history, user_inputs):
     user_inputs = [prompt_helper.preprocess_input(prompt) for prompt in user_inputs]
@@ -84,12 +88,16 @@ class LocalOPT(LLM):
     # model_name = "facebook/opt-iml-max-30b" # (this is a 60gb model)
     model_name = "facebook/opt-iml-1.3b"  # ~2.63gb model -- limit on max tokens not reached
     # model_name = "gpt2"  # -- max input (file upload) tokens is 1024
-    pipeline = pipeline("text-generation", model=model_name, device="cuda:0", model_kwargs={"torch_dtype":torch.bfloat16})
+    ###pipeline = pipeline("text-generation", model=model_name, device="cuda:0", model_kwargs={"torch_dtype":torch.bfloat16})
+
+    # def _call(self, prompt: str, stop=None) -> str:
+    #     response = self.pipeline(prompt, max_new_tokens=max_token_count)[0]["generated_text"]
+    #     # only return newly generated tokens
+    #     return response[len(prompt) :]
 
     def _call(self, prompt: str, stop=None) -> str:
-        response = self.pipeline(prompt, max_new_tokens=max_token_count)[0]["generated_text"]
-        # only return newly generated tokens
-        return response[len(prompt) :]
+        response = batch_process(prompt)[0]
+        return response[len(prompt):]
 
     @property
     def _identifying_params(self):
@@ -123,18 +131,18 @@ def build_chat_bot():
     print("Indexing complete")
     return('Index saved')
 
-def chat(chat_history, user_input):
-    print("Querying input...")
-    query_engine = index.as_query_engine()
-    print("Generating response...")
-    bot_response = query_engine.query(user_input)
+# def chat(chat_history, user_input):
+#     print("Querying input...")
+#     query_engine = index.as_query_engine()
+#     print("Generating response...")
+#     bot_response = query_engine.query(user_input)
 
-    response_stream = ""
-    for letter in ''.join(bot_response.response):
-        response_stream += letter + ""
-        yield chat_history + [(user_input, response_stream)]
+#     response_stream = ""
+#     for letter in ''.join(bot_response.response):
+#         response_stream += letter + ""
+#         yield chat_history + [(user_input, response_stream)]
     
-    print("Completed response generation")
+#     print("Completed response generation")
     
 ##################################### File Upload & Store in Database #####################################
 
@@ -164,14 +172,12 @@ def process_file(fileobj):
         copy_tmp_file(obj.name, final_file_path)
 
     print(final_file_path)
-    dataframe.update(list_files("db"))
     return "Upload processed successfully"
 
 ##################################### Model Selection #####################################
 
 def set_model(name):
-    global tokenizer, model  # This will ensure that the global instances are updated.
-    
+    global tokenizer, model 
     print(f"Loading model: {name}")
     
     if name != model_instance.model_name:
@@ -182,7 +188,6 @@ def set_model(name):
         tokenizer = AutoTokenizer.from_pretrained(model_instance.model_name)
         model = AutoModelForCausalLM.from_pretrained(model_instance.model_name).to("cuda:0")
     
-    chatbot.label = model_instance.model_name
     build_chat_bot()
 
     print(f"Successfully loaded model: {name}")
@@ -218,54 +223,62 @@ def get_model_name():
 
 ##################################### Gradio UI #####################################
 
-with gr.Blocks() as demo:
-    gr.Markdown(
-        """
-        # Dell Generative AI
-        """
-    )
-    with gr.Tab("Database"):
+database_interface = gr.Interface(
+    fn=process_file,
+    inputs=[gr.File(label="Upload files", file_count="multiple")],
+    outputs=[gr.DataFrame(
+        list_files("db"),
+        headers=["File Name", "File Size (bytes)"],
+        datatype=["str", "number"],
+        max_cols=(2),
+        label="Database",
+    )]
+)
 
-        file_input = gr.File(file_count='multiple') # can set to 'single' or 'directory'
-        upload_button = gr.Button("Upload")
-        status = gr.Textbox(label="Status")
-        
-        dataframe = gr.DataFrame(
-            list_files("db"),
-            label="Database",
-            headers=["File Name", "File Size (Kb)"], 
-            datatype=["str", "number"], 
-            col_count=(2,"fixed")
-        )
-        
-        upload_button.click(process_file, file_input, status)
+def set_model_with_input(new_model, model_picker):
+    if new_model:
+        return set_model(new_model)
+    elif model_picker:
+        return set_model(model_picker)
+    else:
+        raise ValueError("Invalid input: both textbox upload and dropdown selection are empty.")
 
-    with gr.Tab("Model"):
+model_selection_interface = gr.Interface(
+    fn=set_model_with_input,
+    inputs=[gr.Textbox(label="Paste a User/Model from HuggingFace"), show_models("models/transformers_cache")],
+    outputs=[gr.Textbox(label="Status")]
+)
 
-        new_model = gr.Textbox(label="Paste a User/Model from HuggingFace")
-        download_button = gr.Button("Download a New Model")
+def adjust_attributes(token_count, overlap):
+    global max_token_count
+    global max_overlap
+    
+    max_token_count = token_count
+    max_overlap = overlap
 
-        model_picker = show_models("models/transformers_cache")
-        load_model = gr.Button("Load Model")
-        
-        status = gr.Textbox(label="Status")
+    attribute_summary = f"max_token_count = {max_token_count}, max_overlap = {max_overlap}"
+    return attribute_summary
 
-        download_button.click(set_model, new_model, status)
-        load_model.click(set_model, model_picker, status)
+attributes_interface = gr.Interface(
+    fn=adjust_attributes,
+    inputs=[gr.Slider(value=100, minimum=10, maximum=1024, step=1, interactive=True, label="Max output tokens"),
+            gr.Slider(value=20, minimum=0, maximum=max_token_count, step=1, interactive=True, label="Max chunk overlap")
+            ],
+    outputs=[gr.Textbox(label="Status")]
+)
 
-    with gr.Tab("Attributes"): # In progress
+chat_interface = gr.ChatInterface(
+    fn=chat,
+    chatbot = gr.Chatbot(label="Chatbot"),
+    textbox = gr.Textbox(label="Input", placeholder="Enter anything to start chatting"), 
+    submit_btn=None
+)
 
-        token_count = gr.Slider(minimum=10, maximum=1024, step=1, interactive=True, label="Max Token Count").value
-        
-        save_changes_button = gr.Button("Save Changes")
-        
-        status = gr.Textbox(label="Status")
+combined_interface = gr.TabbedInterface(
+    title="Dell Virtual Technologist",
+    interface_list=[database_interface, model_selection_interface, attributes_interface, chat_interface],
+    tab_names=["Database", "Model", "Attributes", "Chatbot"],
+    theme=gr.themes.Soft(),
+)
 
-    with gr.Tab("Chatbot"):
-
-        chatbot = gr.Chatbot(label=f"{model_instance.model_name}")
-        message = gr.Textbox(label="Input")
-        message.submit(chat, [chatbot, message], chatbot)
-
-demo.theme = gr.themes.Soft() 
-demo.queue().launch()
+combined_interface.queue().launch()
