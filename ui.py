@@ -2,6 +2,7 @@ import os
 os.environ["TRANSFORMERS_CACHE"] = "./models/transformers_cache"
 
 import torch
+from torch.utils.data import Dataset, DataLoader
 import gradio as gr
 import time
 from langchain.llms.base import LLM
@@ -16,7 +17,50 @@ from llama_index import (
     StorageContext,
 )
 from transformers import pipeline
+from concurrent.futures import ThreadPoolExecutor
 
+
+
+##################################### Parallelization #####################################
+class UserInputDataset(Dataset):
+    def __init__(self, user_inputs):
+        self.user_inputs = user_inputs
+
+    def __len__(self):
+        return len(self.user_inputs)
+
+    def __getitem__(self, idx):
+        return self.user_inputs[idx]
+    
+
+def process_user_input(index, user_input):
+    print("Querying input...")
+    query_engine = index.as_query_engine()
+    print("Generating response...")
+    bot_response = query_engine.query(user_input)
+    response_stream = ""
+    for letter in ''.join(bot_response.response):
+        response_stream += letter + ""
+        yield response_stream
+    print("Completed response generation")
+
+def process_batch(batch_user_inputs):
+    # Process a batch of user inputs in parallel using the ThreadPoolExecutor
+    with ThreadPoolExecutor() as executor:
+        futures = [executor.submit(process_user_input, user_input) for user_input in batch_user_inputs]
+        for future in futures:
+            for response_stream in future.result():
+                yield response_stream
+
+def chat(chat_history, user_input):
+    # Split the user inputs into batches for parallel processing
+    batch_size = 4  # Adjust this value based on your system's capabilities
+    user_inputs_batches = [user_inputs[i:i+batch_size] for i in range(0, len(user_inputs), batch_size)]
+
+    for user_input_batch in user_inputs_batches:
+        response_streams = process_batch(index, user_input_batch)
+        for response_stream in response_streams:
+            yield chat_history + [(user_input, response_stream)]
 ##################################### Utility Functions #####################################
 
 def timeit():
