@@ -21,37 +21,7 @@ from transformers import AutoTokenizer, AutoModelForCausalLM
 
 
 
-##################################### Parallelization #####################################
-    
-def batch_process(user_inputs):
-    # Ensure user_inputs is a list
-    if not isinstance(user_inputs, list):
-        user_inputs = [user_inputs]
 
-    # Tokenization
-    inputs = tokenizer(user_inputs, return_tensors='pt', padding=True, truncation=True, max_length=prompt_helper.max_input_size)
-    inputs = {key: val.to("cuda:0") for key, val in inputs.items()}  # Move the input tensors to GPU
-
-    # Model Inference
-    with torch.no_grad():
-        outputs = model(**inputs)
-    logits = outputs.logits
-
-    # Decoding
-    generated_text_ids = logits.argmax(-1)
-    generated_texts = tokenizer.batch_decode(generated_text_ids, skip_special_tokens=True)
-
-    return generated_texts
-
-
-def chat(chat_history, user_inputs):
-    user_inputs = [prompt_helper.preprocess_input(prompt) for prompt in user_inputs]
-
-    # Process the user inputs in parallel using batch_process
-    generated_responses = batch_process(user_inputs)
-
-    for user_input, response in zip(user_inputs, generated_responses):
-        yield chat_history + [(user_input, response)]
 
 ##################################### Utility Functions #####################################
 
@@ -220,6 +190,38 @@ def show_models(directory):
 
 def get_model_name():
     return model_instance.model_name
+
+##################################### Parallelization #####################################
+set_model("facebook/opt-iml-1.3b")
+def batch_process(user_inputs):
+    # Ensure user_inputs is a list
+    if not isinstance(user_inputs, list):
+        user_inputs = [user_inputs]
+
+    # Tokenization
+    inputs = tokenizer(user_inputs, return_tensors='pt', padding=True, truncation=True, max_length=prompt_helper.max_input_size)
+    inputs = {key: val.to("cuda:0") for key, val in inputs.items()}  # Move the input tensors to GPU
+
+    # Model Inference
+    with torch.no_grad():
+        outputs = model(**inputs)
+    logits = outputs.logits
+
+    # Decoding
+    generated_text_ids = logits.argmax(-1)
+    generated_texts = tokenizer.batch_decode(generated_text_ids, skip_special_tokens=True)
+
+    return generated_texts
+
+
+def chat(chat_history, user_inputs):
+    user_inputs = [prompt_helper.preprocess_input(prompt) for prompt in user_inputs]
+
+    # Process the user inputs in parallel using batch_process
+    generated_responses = batch_process(user_inputs)
+
+    for user_input, response in zip(user_inputs, generated_responses):
+        yield chat_history + [(user_input, response)]
 
 ##################################### Gradio UI #####################################
 
