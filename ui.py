@@ -172,7 +172,7 @@ def process_file(fileobj):
         copy_tmp_file(obj.name, final_file_path)
 
     print(final_file_path)
-    return "Upload processed successfully"
+    return list_files("db")
 
 ##################################### Model Selection #####################################
 
