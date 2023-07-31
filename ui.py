@@ -53,12 +53,14 @@ def process_batch(batch_user_inputs):
                 yield response_stream
 
 def chat(chat_history, user_input):
-    # Split the user inputs into batches for parallel processing
-    batch_size = 4  # Adjust this value based on your system's capabilities
-    user_inputs_batches = [user_inputs[i:i+batch_size] for i in range(0, len(user_inputs), batch_size)]
 
-    for user_input_batch in user_inputs_batches:
-        response_streams = process_batch(index, user_input_batch)
+    # Process the user inputs in parallel batches using DataLoader
+    batch_size = 4  # Adjust this value based on your system's capabilities
+    user_input_dataset = UserInputDataset(user_inputs)
+    data_loader = DataLoader(user_input_dataset, batch_size=batch_size, num_workers=2)  # Adjust num_workers as needed
+
+    for user_input_batch in data_loader:
+        response_streams = process_batch(index, user_input_batch.tolist())
         for response_stream in response_streams:
             yield chat_history + [(user_input, response_stream)]
 ##################################### Utility Functions #####################################
