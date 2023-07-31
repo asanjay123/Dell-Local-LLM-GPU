@@ -89,9 +89,9 @@ prompt_helper = PromptHelper(
 
 torch.cuda.set_per_process_memory_fraction(0.8, device=0)
 
-class LocalOPT(LLM):
+class LocalLLM(LLM):
     # model_name = "facebook/opt-iml-max-30b" # (this is a 60gb model)
-    model_name = "facebook/opt-iml-1.3b"  # ~2.63gb model -- limit on max tokens not reached
+    model_name = "TheBloke/Llama-2-7b-Chat-GPTQ"  # ~2.63gb model -- limit on max tokens not reached
     # model_name = "gpt2"  # -- max input (file upload) tokens is 1024
     pipeline = pipeline("text-generation", model=model_name, device="cuda:0", model_kwargs={"torch_dtype":torch.bfloat16})
 
@@ -108,7 +108,7 @@ class LocalOPT(LLM):
     def _llm_type(self):
         return "custom"
 
-model_instance = LocalOPT()
+model_instance = LocalLLM()
 
 ##################################### Document Indexing & Chatbot Creation #####################################
 
