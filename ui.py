@@ -17,54 +17,38 @@ from llama_index import (
     StorageContext,
 )
 from transformers import pipeline
-from concurrent.futures import ThreadPoolExecutor
+from transformers import AutoTokenizer, AutoModelForCausalLM
+# from concurrent.futures import ThreadPoolExecutor
 
 
 
 ##################################### Parallelization #####################################
-class UserInputDataset(Dataset):
-    def __init__(self, user_inputs):
-        self.user_inputs = user_inputs
-
-    def __len__(self):
-        return len(self.user_inputs)
-
-    def __getitem__(self, idx):
-        return self.user_inputs[idx]
     
+def batch_process(user_inputs):
+    # Tokenization
+    inputs = tokenizer(user_inputs, return_tensors='pt', padding=True, truncation=True, max_length=prompt_helper.max_input_size)
+    inputs = {key: val.to("cuda:0") for key, val in inputs.items()}  # Move the input tensors to GPU
 
-def process_user_input(index, user_input):
-    print("Querying input...")
-    query_engine = index.as_query_engine()
-    print("Generating response...")
-    bot_response = query_engine.query(user_input)
-    response_stream = ""
-    for letter in ''.join(bot_response.response):
-        response_stream += letter + ""
-        yield response_stream
-    print("Completed response generation")
+    # Model Inference
+    with torch.no_grad():
+        outputs = model(**inputs)
+    logits = outputs.logits
 
-def process_batch(batch_user_inputs):
-    # Process a batch of user inputs in parallel using the ThreadPoolExecutor
-    with ThreadPoolExecutor() as executor:
-        futures = [executor.submit(process_user_input, user_input) for user_input in batch_user_inputs]
-        for future in futures:
-            for response_stream in future.result():
-                yield response_stream
+    # Decoding
+    generated_text_ids = logits.argmax(-1)
+    generated_texts = tokenizer.batch_decode(generated_text_ids, skip_special_tokens=True)
+
+    return generated_texts
 
 def chat(chat_history, user_inputs):
     user_inputs = [prompt_helper.preprocess_input(prompt) for prompt in user_inputs]
 
-    # Process the user inputs in parallel using DataLoader
-    batch_size = 4  # Adjust this value based on your system's capabilities
-    user_input_dataset = UserInputDataset(user_inputs)
-    data_loader = DataLoader(user_input_dataset, batch_size=batch_size, num_workers=2)  # Adjust num_workers as needed
+    # Process the user inputs in parallel using batch_process
+    generated_responses = batch_process(user_inputs)
 
-    with torch.cuda.device(0):  # Set the device to process on GPU 0
-        for user_input_batch in data_loader:
-            response_streams = process_batch(user_input_batch.tolist())
-            for user_input, response_stream in zip(user_input_batch, response_streams):
-                yield chat_history + [(user_input, response_stream)]
+    for user_input, response in zip(user_inputs, generated_responses):
+        yield chat_history + [(user_input, response)]
+
 ##################################### Utility Functions #####################################
 
 def timeit():
@@ -186,18 +170,24 @@ def process_file(fileobj):
 ##################################### Model Selection #####################################
 
 def set_model(name):
+    global tokenizer, model  # This will ensure that the global instances are updated.
+    
     print(f"Loading model: {name}")
-    # print(f"Token count from slider: {token_count}")
-
+    
     if name != model_instance.model_name:
         model_instance.model_name = name
         model_instance.pipeline = pipeline("text-generation", model=name, device="cuda:0", model_kwargs={"torch_dtype":torch.bfloat16})
+    
+        # Instantiate the tokenizer and model
+        tokenizer = AutoTokenizer.from_pretrained(model_instance.model_name)
+        model = AutoModelForCausalLM.from_pretrained(model_instance.model_name).to("cuda:0")
     
     chatbot.label = model_instance.model_name
     build_chat_bot()
 
     print(f"Successfully loaded model: {name}")
     return (f"Successfully loaded model: {name}")
+
     
 def get_models(directory):
     immediate_subdirectories = []
