@@ -163,6 +163,15 @@ def copy_tmp_file(tmp_file, new_file):
         f.write(content)
     return None
 
+def list_files(directory):
+    files = os.listdir(directory)
+    file_list = []
+    for filename in files:
+        file_path = os.path.join(directory, filename)
+        file_size = os.path.getsize(file_path)
+        file_list.append((filename, file_size))
+    return file_list
+
 def process_file(fileobj):
     script_dir = os.path.dirname(__file__)
     for obj in fileobj:
@@ -171,6 +180,7 @@ def process_file(fileobj):
         copy_tmp_file(obj.name, final_file_path)
 
     print(final_file_path)
+    dataframe.update(list_files("db"))
     return "Upload processed successfully"
 
 ##################################### Model Selection #####################################
@@ -181,7 +191,7 @@ def set_model(name):
 
     if name != model_instance.model_name:
         model_instance.model_name = name
-        model_instance.pipeline = pipeline("text-generation", model=model_name, device="cuda:0", model_kwargs={"torch_dtype":torch.bfloat16})
+        model_instance.pipeline = pipeline("text-generation", model=name, device="cuda:0", model_kwargs={"torch_dtype":torch.bfloat16})
     
     chatbot.label = model_instance.model_name
     build_chat_bot()
@@ -219,12 +229,25 @@ def get_model_name():
 ##################################### Gradio UI #####################################
 
 with gr.Blocks() as demo:
-    gr.Markdown('Chatbot Interface for Locally Hosted LLM')
+    gr.Markdown(
+        """
+        # Dell Generative AI
+        """
+    )
     with gr.Tab("Database"):
 
         file_input = gr.File(file_count='multiple') # can set to 'single' or 'directory'
         upload_button = gr.Button("Upload")
         status = gr.Textbox(label="Status")
+        
+        dataframe = gr.DataFrame(
+            list_files("db"),
+            label="Database",
+            headers=["File Name", "File Size (Kb)"], 
+            datatype=["str", "number"], 
+            col_count=(2,"fixed")
+        )
+        
         upload_button.click(process_file, file_input, status)
 
     with gr.Tab("Model"):
@@ -254,4 +277,5 @@ with gr.Blocks() as demo:
         message = gr.Textbox(label="Input")
         message.submit(chat, [chatbot, message], chatbot)
 
+demo.theme = gr.themes.Soft() 
 demo.queue().launch()
