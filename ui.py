@@ -18,7 +18,7 @@ from llama_index import (
 )
 from transformers import pipeline
 from transformers import AutoTokenizer, AutoModelForCausalLM
-# from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor
 
 
 
@@ -40,14 +40,23 @@ def batch_process(user_inputs):
 
     return generated_texts
 
+# def chat(chat_history, user_inputs):
+#     user_inputs = [prompt_helper.preprocess_input(prompt) for prompt in user_inputs]
+
+#     # Process the user inputs in parallel using batch_process
+#     generated_responses = batch_process(user_inputs)
+
+#     for user_input, response in zip(user_inputs, generated_responses):
+#         yield chat_history + [(user_input, response)]
+
 def chat(chat_history, user_inputs):
-    user_inputs = [prompt_helper.preprocess_input(prompt) for prompt in user_inputs]
-
-    # Process the user inputs in parallel using batch_process
-    generated_responses = batch_process(user_inputs)
-
+    print("Generating")
+    with ThreadPoolExecutor() as executor:
+        generated_responses = list(executor.map(batch_process, user_inputs))
+    print("Querying")
     for user_input, response in zip(user_inputs, generated_responses):
         yield chat_history + [(user_input, response)]
+    print("Finished")
 
 ##################################### Utility Functions #####################################
 
@@ -123,18 +132,18 @@ def build_chat_bot():
     print("Indexing complete")
     return('Index saved')
 
-def chat(chat_history, user_input):
-    print("Querying input...")
-    query_engine = index.as_query_engine()
-    print("Generating response...")
-    bot_response = query_engine.query(user_input)
-
-    response_stream = ""
-    for letter in ''.join(bot_response.response):
-        response_stream += letter + ""
-        yield chat_history + [(user_input, response_stream)]
+# def chat(chat_history, user_input):
+#     print("Querying input...")
+#     query_engine = index.as_query_engine()
+#     print("Generating response...")
+#     bot_response = query_engine.query(user_input)
     
-    print("Completed response generation")
+#     response_stream = ""
+#     for letter in ''.join(bot_response.response):
+#         response_stream += letter + ""
+#         yield chat_history + [(user_input, response_stream)]
+    
+#     print("Completed response generation")
     
 ##################################### File Upload & Store in Database #####################################
 
