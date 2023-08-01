@@ -31,41 +31,32 @@ class UserInputDataset(Dataset):
 
     def __getitem__(self, idx):
         return self.user_inputs[idx]
-    
 
-def process_user_input(index, user_input):
+def process_user_input(user_input):
     print("Querying input...")
     query_engine = index.as_query_engine()
     print("Generating response...")
     bot_response = query_engine.query(user_input)
-    response_streams = ["" for _ in user_inputs]
-    for idx, bot_response in enumerate(bot_responses):
-        for letter in ''.join(bot_response.response):
-            response_streams[idx] += letter + ""
-    return response_streams
-    # response_stream = ""
-    # for letter in ''.join(bot_response.response):
-    #     response_stream += letter + ""
-    #     yield response_stream
-    print("Completed response generation")
+    response_stream = ''.join(bot_response.response)
+    return response_stream
 
 def process_batch(batch_user_inputs):
-    # Process a batch of user inputs in parallel using the ThreadPoolExecutor
     with ThreadPoolExecutor() as executor:
-        futures = [executor.submit(process_user_input, user_input) for user_input in batch_user_inputs]
-        for future in futures:
-            for response_stream in future.result():
-                yield response_stream
+        bot_responses = list(executor.map(process_user_input, batch_user_inputs))
+    return bot_responses
 
-def chat(chat_history, user_input):
-    # Split the user inputs into batches for parallel processing
-    batch_size = 4  # Adjust this value based on your system's capabilities
+def chat(chat_history, user_inputs): 
+    if not index:
+        return "Error: Index is not set up properly. Please ensure the model is loaded and the chatbot is initialized correctly."
+    batch_size = 5
     user_inputs_batches = [user_inputs[i:i+batch_size] for i in range(0, len(user_inputs), batch_size)]
 
     for user_input_batch in user_inputs_batches:
-        response_streams = process_batch(index, user_input_batch)
-        for response_stream in response_streams:
-            yield chat_history + [(user_input, response_stream)]
+        # Add the assertion here to ensure each item in the batch is a string
+        assert all(isinstance(item, str) for item in user_input_batch), f"Non-string item found: {user_input_batch}"
+        bot_responses = process_batch(user_input_batch)
+        for user_input in user_input_batch:
+            yield chat_history + [user_input]
 ##################################### Utility Functions #####################################
 
 def timeit():
@@ -95,7 +86,7 @@ prompt_helper = PromptHelper(
     max_chunk_overlap=20,
 )
 
-torch.cuda.set_per_process_memory_fraction(0.4, device=0)
+torch.cuda.set_per_process_memory_fraction(0.8, device=0)
 
 class LocalOPT(LLM):
     # model_name = "facebook/opt-iml-max-30b" # (this is a 60gb model)
@@ -142,18 +133,18 @@ def build_chat_bot():
     print("Indexing complete")
     return('Index saved')
 
-def chat(chat_history, user_input):
-    print("Querying input...")
-    query_engine = index.as_query_engine()
-    print("Generating response...")
-    bot_response = query_engine.query(user_input)
+# def chat(chat_history, user_input):
+#     print("Querying input...")
+#     query_engine = index.as_query_engine()
+#     print("Generating response...")
+#     bot_response = query_engine.query(user_input)
 
-    response_stream = ""
-    for letter in ''.join(bot_response.response):
-        response_stream += letter + ""
-        yield chat_history + [(user_input, response_stream)]
+#     response_stream = ""
+#     for letter in ''.join(bot_response.response):
+#         response_stream += letter + ""
+#         yield chat_history + [(user_input, response_stream)]
     
-    print("Completed response generation")
+#     print("Completed response generation")
     
 ##################################### File Upload & Store in Database #####################################
 
